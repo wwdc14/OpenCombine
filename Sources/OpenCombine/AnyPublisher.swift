@@ -7,9 +7,12 @@
 
 /// A type-erasing publisher.
 ///
-/// Use `AnyPublisher` to wrap a publisher whose type has details you don’t want to expose to subscribers or other
-/// publishers.
-public struct AnyPublisher<Output, Failure: Error> {
+/// Use `AnyPublisher` to wrap a publisher whose type has details you don’t want to expose
+/// to subscribers or other publishers.
+public struct AnyPublisher<Output, Failure: Error>
+  : CustomStringConvertible,
+    CustomPlaygroundDisplayConvertible
+{
 
     @usableFromInline
     internal let box: PublisherBoxBase<Output, Failure>
@@ -19,88 +22,71 @@ public struct AnyPublisher<Output, Failure: Error> {
     /// - Parameters:
     ///   - publisher: A publisher to wrap with a type-eraser.
     @inlinable
-    public init<P: Publisher>(_ publisher: P)
-        where Output == P.Output, Failure == P.Failure
+    public init<PublisherType: Publisher>(_ publisher: PublisherType)
+        where Output == PublisherType.Output, Failure == PublisherType.Failure
     {
         box = PublisherBox(base: publisher)
     }
 
-    /// Creates a type-erasing publisher implemented by the provided closure.
-    ///
-    /// - Parameters:
-    ///   - subscribe: A closure to invoke when a subscriber subscribes to the publisher.
-    @inlinable
-    public init(_ subscribe: @escaping (AnySubscriber<Output, Failure>) -> Void) {
-        box = PublisherBox(base: ClosureBasedPublisher(subscribe))
+    public var description: String {
+        return "AnyPublisher"
+    }
+
+    public var playgroundDescription: Any {
+        return description
     }
 }
 
 extension AnyPublisher: Publisher {
 
-    /// This function is called to attach the specified `Subscriber` to this `Publisher` by `subscribe(_:)`
+    /// This function is called to attach the specified `Subscriber` to this `Publisher`
+    /// by `subscribe(_:)`
     ///
     /// - SeeAlso: `subscribe(_:)`
     /// - Parameters:
     ///     - subscriber: The subscriber to attach to this `Publisher`.
     ///                   once attached it can begin to receive values.
     @inlinable
-    public func receive<S: Subscriber>(subscriber: S)
-        where Output == S.Input, Failure == S.Failure
+    public func receive<Downstream: Subscriber>(subscriber: Downstream)
+        where Output == Downstream.Input, Failure == Downstream.Failure
     {
-        box.receive(subscriber: subscriber)
+        box.subscribe(subscriber)
     }
 }
 
-/// A type-erasing base class. Its concrete subclass is generic over the underlying publisher.
+/// A type-erasing base class. Its concrete subclass is generic over the underlying
+/// publisher.
 @usableFromInline
 internal class PublisherBoxBase<Output, Failure: Error>: Publisher {
 
     @inlinable
-    init() {}
+    internal init() {}
 
-    @inlinable
-    func receive<S: Subscriber>(subscriber: S)
-        where Failure == S.Failure, Output == S.Input
+    @usableFromInline
+    internal func receive<Downstream: Subscriber>(subscriber: Downstream)
+        where Failure == Downstream.Failure, Output == Downstream.Input
     {
-        fatalError()
+        abstractMethod()
     }
 }
 
 @usableFromInline
-internal final class PublisherBox<P: Publisher>: PublisherBoxBase<P.Output, P.Failure> {
-
+internal final class PublisherBox<PublisherType: Publisher>
+    : PublisherBoxBase<PublisherType.Output, PublisherType.Failure>
+{
     @usableFromInline
-    let base: P
+    internal let base: PublisherType
 
     @inlinable
-    init(base: P) {
+    internal init(base: PublisherType) {
         self.base = base
         super.init()
     }
 
     @inlinable
-    override func receive<S: Subscriber>(subscriber: S)
-        where Failure == S.Failure, Output == S.Input
+    override internal func receive<Downstream: Subscriber>(subscriber: Downstream)
+        where Failure == Downstream.Failure, Output == Downstream.Input
     {
-        base.receive(subscriber: subscriber)
-    }
-}
-
-@usableFromInline
-internal struct ClosureBasedPublisher<Output, Failure: Error>: Publisher {
-
-    @usableFromInline
-    let subscribe: (AnySubscriber<Output, Failure>) -> Void
-
-    @inlinable
-    init(_ subscribe: @escaping (AnySubscriber<Output, Failure>) -> Void) {
-        self.subscribe = subscribe
-    }
-
-    @inlinable
-    func receive<S: Subscriber>(subscriber: S)
-        where Failure == S.Failure, Output == S.Input
-    {
-        subscribe(AnySubscriber(subscriber))
+        base.subscribe(subscriber)
     }
 }

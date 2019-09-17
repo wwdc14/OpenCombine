@@ -13,13 +13,8 @@ import Combine
 import OpenCombine
 #endif
 
-@available(macOS 10.15, *)
+@available(macOS 10.15, iOS 13.0, *)
 final class ImmediateSchedulerTests: XCTestCase {
-
-    static let allTests = [
-        ("testStride", testSchedulerTimeType),
-        ("testActions", testActions),
-    ]
 
     func testSchedulerTimeType() throws {
 
@@ -80,5 +75,22 @@ final class ImmediateSchedulerTests: XCTestCase {
         }
 
         XCTAssertTrue(fired)
+        fired = false
+
+        ImmediateScheduler.shared.schedule(after: ImmediateScheduler.shared.now) {
+            fired = true
+        }
+
+        XCTAssertTrue(fired)
+        fired = false
+
+        let cancellable = ImmediateScheduler
+            .shared
+            .schedule(after: ImmediateScheduler.shared.now, interval: 10) {
+                fired = true
+            }
+
+        XCTAssertTrue(fired)
+        XCTAssertEqual(String(describing: cancellable), "Empty")
     }
 }

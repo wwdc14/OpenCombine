@@ -8,16 +8,13 @@
 extension Subscribers {
 
     /// A simple subscriber that requests an unlimited number of values upon subscription.
-    public final class Sink<Upstream: Publisher>: Subscriber,
-                                                  Cancellable,
-                                                  CustomStringConvertible,
-                                                  CustomReflectable,
-                                                  CustomPlaygroundDisplayConvertible
+    public final class Sink<Input, Failure: Error>
+        : Subscriber,
+          Cancellable,
+          CustomStringConvertible,
+          CustomReflectable,
+          CustomPlaygroundDisplayConvertible
     {
-        public typealias Input = Upstream.Output
-
-        public typealias Failure = Upstream.Failure
-
         /// The closure to execute on receipt of a value.
         public let receiveValue: (Input) -> Void
 
@@ -37,13 +34,13 @@ extension Subscribers {
         /// Initializes a sink with the provided closures.
         ///
         /// - Parameters:
-        ///   - receiveValue: The closure to execute on receipt of a value. If `nil`, the sink uses
-        ///     an empty closure.
-        ///   - receiveCompletion: The closure to execute on completion. If `nil`, the sink uses
-        ///     an empty closure.
-        public init(receiveCompletion: ((Subscribers.Completion<Failure>) -> Void)? = nil,
-                    receiveValue: @escaping ((Input) -> Void)) {
-            self.receiveCompletion = receiveCompletion ?? { _ in }
+        ///   - receiveCompletion: The closure to execute on completion.
+        ///   - receiveValue: The closure to execute on receipt of a value.
+        public init(
+            receiveCompletion: @escaping (Subscribers.Completion<Failure>) -> Void,
+            receiveValue: @escaping ((Input) -> Void)
+        ) {
+            self.receiveCompletion = receiveCompletion
             self.receiveValue = receiveValue
         }
 
@@ -76,22 +73,46 @@ extension Publisher {
 
     /// Attaches a subscriber with closure-based behavior.
     ///
-    /// This method creates the subscriber and immediately requests an unlimited number of values, prior to returning
-    /// the subscriber.
-    /// - parameter receiveValue: The closure to execute on receipt of a value. If `nil`, the sink uses
-    ///   an empty closure.
-    /// - parameter receiveComplete: The closure to execute on completion. If `nil`, the sink uses
-    ///   an empty closure.
-    /// - Returns: A subscriber that performs the provided closures upon receiving values or completion.
+    /// This method creates the subscriber and immediately requests an unlimited number
+    /// of values, prior to returning the subscriber.
+    ///
+    /// - parameter receiveComplete: The closure to execute on completion.
+    /// - parameter receiveValue: The closure to execute on receipt of a value.
+    /// - Returns: A cancellable instance; used when you end assignment of
+    ///   the received value. Deallocation of the result will tear down
+    ///   the subscription stream.
     public func sink(
-        receiveCompletion: ((Subscribers.Completion<Failure>) -> Void)? = nil,
+        receiveCompletion: @escaping (Subscribers.Completion<Failure>) -> Void,
         receiveValue: @escaping ((Output) -> Void)
-    ) -> Subscribers.Sink<Self> {
-        let subscriber = Subscribers.Sink<Self>(
+    ) -> AnyCancellable {
+        let subscriber = Subscribers.Sink<Output, Failure>(
             receiveCompletion: receiveCompletion,
             receiveValue: receiveValue
         )
         subscribe(subscriber)
-        return subscriber
+        return AnyCancellable(subscriber)
+    }
+}
+
+extension Publisher where Failure == Never {
+
+    /// Attaches a subscriber with closure-based behavior.
+    ///
+    /// This method creates the subscriber and immediately requests an unlimited number
+    /// of values, prior to returning the subscriber.
+    ///
+    /// - parameter receiveValue: The closure to execute on receipt of a value.
+    /// - Returns: A cancellable instance; used when you end assignment of
+    ///   the received value. Deallocation of the result will tear down
+    ///   the subscription stream.
+    public func sink(
+        receiveValue: @escaping (Output) -> Void
+    ) -> AnyCancellable {
+        let subscriber = Subscribers.Sink<Output, Failure>(
+            receiveCompletion: { _ in },
+            receiveValue: receiveValue
+        )
+        subscribe(subscriber)
+        return AnyCancellable(subscriber)
     }
 }

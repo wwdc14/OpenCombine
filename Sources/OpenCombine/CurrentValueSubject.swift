@@ -5,20 +5,30 @@
 //  Created by Sergej Jaskiewicz on 11.06.2019.
 //
 
-/// A subject that wraps a single value and publishes a new element whenever the value changes.
+/// A subject that wraps a single value and publishes a new element whenever the value
+/// changes.
 public final class CurrentValueSubject<Output, Failure: Error>: Subject {
 
     private let _lock = Lock(recursive: true)
 
     // TODO: Combine uses bag data structure
-    private var _downstreams: [Conduit] = []
+    private var _subscriptions: [Conduit] = []
+
+    private var _value: Output
 
     private var _completion: Subscribers.Completion<Failure>?
 
+    internal var upstreamSubscriptions: [Subscription] = []
+
+    internal var hasAnyDownstreamDemand = false
+
     /// The value wrapped by this subject, published as a new element whenever it changes.
     public var value: Output {
-        didSet {
-            send(value)
+        get {
+            return _value
+        }
+        set {
+            send(newValue)
         }
     }
 
@@ -26,29 +36,50 @@ public final class CurrentValueSubject<Output, Failure: Error>: Subject {
     ///
     /// - Parameter value: The initial value to publish.
     public init(_ value: Output) {
-        self.value = value
+        self._value = value
     }
 
-    public func receive<S: Subscriber>(subscriber: S)
-        where Output == S.Input, Failure == S.Failure
-    {
-        let subscription = Conduit(parent: self, downstream: AnySubscriber(subscriber))
-
-        _lock.do {
-            _downstreams.append(subscription)
+    deinit {
+        for subscription in _subscriptions {
+            subscription._downstream = nil
         }
+    }
 
-        subscriber.receive(subscription: subscription)
+    public func send(subscription: Subscription) {
+        _lock.do {
+            upstreamSubscriptions.append(subscription)
+            subscription.request(.unlimited)
+        }
+    }
+
+    public func receive<Subscriber: OpenCombine.Subscriber>(subscriber: Subscriber)
+        where Output == Subscriber.Input, Failure == Subscriber.Failure
+    {
+        _lock.do {
+
+            if let completion = _completion {
+                subscriber.receive(subscription: Subscriptions.empty)
+                subscriber.receive(completion: completion)
+                return
+            } else {
+                let subscription = Conduit(parent: self,
+                                           downstream: AnySubscriber(subscriber))
+
+                _subscriptions.append(subscription)
+                subscriber.receive(subscription: subscription)
+            }
+        }
     }
 
     public func send(_ input: Output) {
         _lock.do {
-            for subscriber in _downstreams {
-                if subscriber._demand > 0 {
-                    let newDemand = subscriber._downstream?.receive(input) ?? .none
-                    subscriber._demand += newDemand - 1
+            _value = input
+            for subscription in _subscriptions where !subscription.isCompleted {
+                if subscription._demand > 0 {
+                    subscription._offer(input)
+                    subscription._demand -= 1
                 } else {
-                    subscriber._delivered = false
+                    subscription._delivered = false
                 }
             }
         }
@@ -57,7 +88,7 @@ public final class CurrentValueSubject<Output, Failure: Error>: Subject {
     public func send(completion: Subscribers.Completion<Failure>) {
         _completion = completion
         _lock.do {
-            for subscriber in _downstreams {
+            for subscriber in _subscriptions {
                 subscriber._receive(completion: completion)
             }
         }
@@ -77,6 +108,15 @@ extension CurrentValueSubject {
         /// Whethere we satisfied the demand
         fileprivate var _delivered = false
 
+        var isCompleted: Bool {
+            return _parent == nil
+        }
+
+        fileprivate func _offer(_ value: Output) {
+            let newDemand = _downstream?.receive(value) ?? .none
+            _demand += newDemand
+            _delivered = true
+        }
 
         fileprivate init(parent: CurrentValueSubject,
                          downstream: AnySubscriber<Output, Failure>) {
@@ -85,26 +125,32 @@ extension CurrentValueSubject {
         }
 
         fileprivate func _receive(completion: Subscribers.Completion<Failure>) {
-            let downstream = _downstream
-            cancel()
-            downstream?.receive(completion: completion)
+            if !isCompleted {
+                _parent = nil
+                _downstream?.receive(completion: completion)
+            }
         }
 
         func request(_ demand: Subscribers.Demand) {
+            precondition(demand > 0)
             _parent?._lock.do {
                 if !_delivered, let value = _parent?.value {
-                    let newDemand = _downstream?.receive(value) ?? .none
-                    _demand = demand + newDemand - 1
-                    _delivered = true
+                    _offer(value)
+                    _demand += demand
+                    _demand -= 1
                 } else {
                     _demand = demand
                 }
+                _parent?.hasAnyDownstreamDemand = true
             }
         }
 
         func cancel() {
             _parent = nil
-            _downstream = nil
         }
     }
+}
+
+extension CurrentValueSubject.Conduit: CustomStringConvertible {
+    fileprivate var description: String { return "CurrentValueSubject" }
 }

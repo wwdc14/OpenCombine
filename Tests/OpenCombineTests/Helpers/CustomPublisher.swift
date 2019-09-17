@@ -11,31 +11,52 @@ import Combine
 import OpenCombine
 #endif
 
-@available(macOS 10.15, *)
-final class CustomPublisher: Publisher {
+/// `CustomPublisher` sends the `subscription` object it has been initialized with
+/// to whoever subscribed to this publisher.
+///
+/// This is useful in conjunction with the `CustomSubscription` class, which allows you
+/// to track the demand requested by the subscribers of this publisher.
+///
+/// Example:
+///
+///     let subscription = CustomSubscription()
+///     let publisher = CustomPublisher(subscription: subscription)
+///
+///     let subscriber = AnySubscriber(receiveSubscription: {
+///         $0.request(42)
+///         $0.cancel()
+///     })
+///
+///     publisher.subscribe(subscriber)
+///
+///     assert(subscription.history == [.requested(.max(42)), .cancelled])
+@available(macOS 10.15, iOS 13.0, *)
+typealias CustomPublisher = CustomPublisherBase<Int, TestingError>
 
-    typealias Output = Int
-    typealias Failure = TestingError
+@available(macOS 10.15, iOS 13.0, *)
+final class CustomPublisherBase<Output: Equatable, Failure: Error>: Publisher {
 
-    private var subscriber: AnySubscriber<Int, TestingError>?
+    private(set) var subscriber: AnySubscriber<Output, Failure>?
+    private(set) var erasedSubscriber: Any?
     private let subscription: Subscription?
 
     init(subscription: Subscription?) {
         self.subscription = subscription
     }
 
-    func receive<S: Subscriber>(subscriber: S)
-        where Failure == S.Failure, Output == S.Input
+    func receive<Downstream: Subscriber>(subscriber: Downstream)
+        where Failure == Downstream.Failure, Output == Downstream.Input
     {
         self.subscriber = AnySubscriber(subscriber)
+        erasedSubscriber = subscriber
         subscription.map(subscriber.receive(subscription:))
     }
 
-    func send(_ value: Int) -> Subscribers.Demand {
-        return subscriber!.receive(value)
+    func send(_ value: Output) -> Subscribers.Demand {
+        return subscriber?.receive(value) ?? .none
     }
 
-    func send(completion: Subscribers.Completion<TestingError>) {
+    func send(completion: Subscribers.Completion<Failure>) {
         subscriber!.receive(completion: completion)
     }
 }

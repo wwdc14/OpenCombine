@@ -13,35 +13,28 @@ import Combine
 import OpenCombine
 #endif
 
-@available(macOS 10.15, *)
+@available(macOS 10.15, iOS 13.0, *)
 final class AnyPublisherTests: XCTestCase {
-
-    static let allTests = [
-        ("testErasePublisher", testErasePublisher),
-        ("testClosureBasedPublisher", testClosureBasedPublisher),
-    ]
 
     private typealias Sut = AnyPublisher<Int, TestingError>
 
     func testErasePublisher() {
 
-        let publisher = TrackingSubject()
-        let erased = AnyPublisher(publisher)
         let subscriber = TrackingSubscriber()
+        let publisher = TrackingSubject<Int>(
+            receiveSubscriber: {
+                XCTAssertEqual($0.combineIdentifier, subscriber.combineIdentifier)
+            }
+        )
+        let erased = AnyPublisher(publisher)
 
-        erased.receive(subscriber: subscriber)
-        XCTAssertEqual(publisher.history, [.subscriber(subscriber.combineIdentifier)])
+        erased.subscribe(subscriber)
+        XCTAssertEqual(publisher.history, [.subscriber])
     }
 
-    func testClosureBasedPublisher() {
-
-        var erasedSubscriber: AnySubscriber<Int, TestingError>?
-
-        let erased = AnyPublisher<Int, TestingError> { erasedSubscriber = $0 }
-        let subscriber = TrackingSubscriber()
-
-        erased.receive(subscriber: subscriber)
-
-        XCTAssertEqual(erasedSubscriber?.combineIdentifier, subscriber.combineIdentifier)
+    func testDescription() {
+        let erased = AnyPublisher(TrackingSubject<Int>())
+        XCTAssertEqual(erased.description, "AnyPublisher")
+        XCTAssertEqual(erased.description, erased.playgroundDescription as? String)
     }
 }

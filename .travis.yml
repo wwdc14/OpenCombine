@@ -1,32 +1,94 @@
 language: generic
+
+addons:
+  homebrew:
+    taps:
+      - danger/tap
+    packages:
+      - swiftlint
+      - danger-swift
+    update: true
+
+cache:
+    directories:
+      - .build
+      - ~/.danger-swift
+      - ~/.swiftenv
+      - ~/Library/Caches/Homebrew
+
 matrix:
   include:
-    - name: "Ubuntu 16.04 | Swift 5.1"
+    - name: "Ubuntu 16.04 | Swift 5.1 | Tests"
       os: linux
       dist: xenial
       sudo: required
-      env: SWIFT_VERSION="swift-5.1-DEVELOPMENT-SNAPSHOT-2019-06-16-a" OPENCOMBINE_COMPATIBILITY_TEST="NO"
-    - name: "macOS 10.14 | Swift 5.0"
+      env: SWIFT_VERSION="swift-5.1-DEVELOPMENT-SNAPSHOT-2019-09-05-a" OPENCOMBINE_TEST="YES"
+    - name: "macOS 10.14 | Swift 5.0 | Tests"
       os: osx
       osx_image: xcode10.2
-      env: SWIFT_VERSION="5.0" OPENCOMBINE_COMPATIBILITY_TEST="NO"
-  # - name: "macOS 10.14 | Swift 5.1"
-  #   os: osx
-  #   osx_image: xcode10.2
-  #   env: SWIFT_VERSION="swift-5.1-DEVELOPMENT-SNAPSHOT-2019-06-16-a" OPENCOMBINE_COMPATIBILITY_TEST="NO"
-  # - name: "macOS 10.15 | Swift 5.1"
-  #   os: osx
-  #   osx_image: xcode11.0
-  #   env: SWIFT_VERSION="swift-5.1-DEVELOPMENT-SNAPSHOT-2019-06-16-a" OPENCOMBINE_COMPATIBILITY_TEST="YES"
+      env: SWIFT_VERSION="5.0" CODE_COVERAGE="YES" OPENCOMBINE_TEST="YES"
+    # - name: "iOS 13.0 | Swift 5.1 | Compatibility Tests"
+    #   os: osx
+    #   osx_image: xcode11
+    #   env: SWIFT_VERSION="5.1" OPENCOMBINE_COMPATIBILITY_TEST="YES"
+    - name: "macOS 10.14 | Swift 5.0 | Code Quality"
+      os: osx
+      osx_image: xcode10.2
+      env: SWIFT_VERSION="5.0" RUN_DANGER="YES" SWIFT_LINT="YES"
+
+before_cache:
+  - brew cleanup
+
 before_install:
   - if [[ $TRAVIS_OS_NAME == "linux" ]]; then
       cat /proc/cpuinfo;
     fi
 install:
-  - eval "$(curl -sL https://swiftenv.fuller.li/install.sh)"
+  - if [[ $TRAVIS_OS_NAME == "linux" ]]; then
+      eval "$(curl -sL https://swiftenv.fuller.li/install.sh)";
+    fi
+  - if [[ $CODE_COVERAGE == "YES" ]]; then
+      gem install xcpretty;
+    fi
 script:
-  - swift test -c debug --enable-code-coverage --sanitize thread
-  - swift test -c release
+  - if [[ $OPENCOMBINE_TEST == "YES" ]]; then
+      if [[ $TRAVIS_OS_NAME == "linux" ]]; then
+        make SWIFT_TEST_FLAGS="--enable-test-discovery --enable-index-store" test-debug;
+      else
+        make test-debug;
+      fi
+    fi
+  - if [[ $OPENCOMBINE_TEST == "YES" ]]; then
+      if [[ $TRAVIS_OS_NAME == "linux" ]]; then
+        make SWIFT_TEST_FLAGS="--enable-test-discovery --enable-index-store" test-debug-sanitize-thread;
+      else
+        make test-debug-sanitize-thread;
+      fi
+    fi
+  - if [[ $OPENCOMBINE_TEST == "YES" ]]; then
+      if [[ $TRAVIS_OS_NAME == "linux" ]]; then
+        make SWIFT_TEST_FLAGS="--enable-test-discovery --enable-index-store" test-release;
+      else
+        make test-release;
+      fi
+    fi
   - if [[ $OPENCOMBINE_COMPATIBILITY_TEST == "YES" ]]; then
-      swift test -c release -Xswiftc -DOPENCOMBINE_COMPATIBILITY_TEST;
+      make generate-compatibility-xcodeproj;
+      set -o pipefail && xcodebuild \
+          -scheme OpenCombine-Package \
+          -sdk iphonesimulator13.0 \
+          -destination "platform=iOS Simulator,name=iPhone Xs,OS=13.0" \
+          build test | xcpretty;
+    fi
+  - if [[ $SWIFT_LINT == "YES" ]]; then
+      swiftlint lint --strict --reporter "emoji";
+    fi
+  - if [[ $RUN_DANGER == "YES" ]]; then
+      danger-swift ci;
+    fi
+after_success:
+  - if [[ $CODE_COVERAGE == "YES" ]]; then
+      make generate-xcodeproj;
+      xcodebuild -scheme OpenCombine-Package build test | xcpretty;
+      bash <(curl -s https://codecov.io/bash);
     fi

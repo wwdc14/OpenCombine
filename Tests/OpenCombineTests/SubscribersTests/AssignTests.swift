@@ -13,21 +13,15 @@ import Combine
 import OpenCombine
 #endif
 
-@available(macOS 10.15, *)
+@available(macOS 10.15, iOS 13.0, *)
 final class AssignTests: XCTestCase {
-
-    static let allTests = [
-        ("testDescription", testDescription),
-        ("testReflection", testReflection),
-        ("testSubscription", testSubscription),
-        ("testReceiveValue", testReceiveValue),
-        ("testPublisherOperator", testPublisherOperator),
-    ]
 
     private typealias Sut<Root> = Subscribers.Assign<Root, Int>
 
     private final class TestObject {
+
         var value: Int = 0
+
         init() {}
     }
 
@@ -56,7 +50,7 @@ final class AssignTests: XCTestCase {
         XCTAssertEqual(children[1].value as? ReferenceWritableKeyPath<TestObject, Int>,
                        \.value)
 
-        XCTAssertEqual(children[2].label, "upstreamSubscription")
+        XCTAssertEqual(children[2].label, "status")
         XCTAssertNotNil(children[2].value)
     }
 
@@ -68,19 +62,19 @@ final class AssignTests: XCTestCase {
         let subscription1 = CustomSubscription()
         assign.receive(subscription: subscription1)
         XCTAssertEqual(subscription1.lastRequested, .unlimited)
-        XCTAssertFalse(subscription1.canceled)
+        XCTAssertFalse(subscription1.cancelled)
 
         let subscription2 = CustomSubscription()
         assign.receive(subscription: subscription2)
-        XCTAssertFalse(subscription1.canceled)
-        XCTAssertTrue(subscription2.canceled)
+        XCTAssertFalse(subscription1.cancelled)
+        XCTAssertTrue(subscription2.cancelled)
 
         assign.receive(subscription: subscription1)
-        XCTAssertTrue(subscription1.canceled)
+        XCTAssertTrue(subscription1.cancelled)
 
-        subscription1.canceled = false
+        subscription1.cancelled = false
         assign.receive(completion: .finished)
-        XCTAssertTrue(subscription1.canceled)
+        XCTAssertTrue(subscription1.cancelled)
     }
 
     func testReceiveValue() {

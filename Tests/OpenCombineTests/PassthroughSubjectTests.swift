@@ -13,25 +13,16 @@ import Combine
 import OpenCombine
 #endif
 
-@available(macOS 10.15, *)
+@available(macOS 10.15, iOS 13.0, *)
 final class PassthroughSubjectTests: XCTestCase {
-
-    static let allTests = [
-        ("testRequestingDemand", testRequestingDemand),
-        ("testMultipleSubscriptions", testMultipleSubscriptions),
-        ("testMultipleCompletions", testMultipleCompletions),
-        ("testValuesAfterCompletion", testValuesAfterCompletion),
-        ("testLifecycle", testLifecycle),
-        ("testSynchronization", testSynchronization),
-    ]
 
     private typealias Sut = PassthroughSubject<Int, TestingError>
 
     // Reactive Streams Spec: Rules #1, #2, #9
     func testRequestingDemand() {
 
-        let initialDemands: [Subscribers.Demand] = [
-            .max(0),
+        let initialDemands: [Subscribers.Demand?] = [
+            nil,
             .max(1),
             .max(2),
             .max(10),
@@ -65,7 +56,7 @@ final class PassthroughSubjectTests: XCTestCase {
                 let subscriber = AnySubscriber<Int, TestingError>(
                     receiveSubscription: { subscription in
                         subscriptions.append(subscription)
-                        subscription.request(initialDemand)
+                        initialDemand.map(subscription.request)
                     },
                     receiveValue: { value in
                         defer { i += 1 }
@@ -101,6 +92,34 @@ final class PassthroughSubjectTests: XCTestCase {
         }
 
         XCTAssertEqual(numberOfInputsHistory, expectedNumberOfInputsHistory)
+    }
+
+    func testCrashOnZeroInitialDemand() {
+        assertCrashes {
+            let subscriber = TrackingSubscriber(
+                receiveSubscription: { $0.request(.none) }
+            )
+
+            Sut().subscribe(subscriber)
+        }
+    }
+
+    func testSendFailureCompletion() {
+        let cvs = Sut()
+        let subscriber = TrackingSubscriber(
+            receiveSubscription: { subscription in
+                subscription.request(.unlimited)
+            }
+        )
+
+        cvs.subscribe(subscriber)
+
+        XCTAssertEqual(subscriber.history, [.subscription("PassthroughSubject")])
+
+        cvs.send(completion: .failure(.oops))
+
+        XCTAssertEqual(subscriber.history, [.subscription("PassthroughSubject"),
+                                            .completion(.failure(.oops))])
     }
 
     func testMultipleSubscriptions() {
@@ -248,7 +267,50 @@ final class PassthroughSubjectTests: XCTestCase {
         XCTAssertEqual(completions.count, 1)
     }
 
-    func testLifecycle() {
+    func testSubscriptionAfterCompletion() {
+        let passthrough = Sut()
+        passthrough.send(completion: .finished)
+
+        let subscriber = TrackingSubscriber()
+        passthrough.subscribe(subscriber)
+
+        XCTAssertEqual(subscriber.history, [.subscription("Empty"),
+                                            .completion(.finished)])
+    }
+
+    func testSendSubscription() {
+        let subscription1 = CustomSubscription()
+        let passthrough = Sut()
+
+        passthrough.send(subscription: subscription1)
+        XCTAssertEqual(subscription1.history, [])
+
+        let subscriber1 = TrackingSubscriber(receiveSubscription: { $0.request(.max(1)) })
+        passthrough.subscribe(subscriber1)
+
+        XCTAssertEqual(subscription1.history, [.requested(.unlimited)])
+        XCTAssertEqual(subscriber1.history, [.subscription("PassthroughSubject")])
+
+        let subscriber2 = TrackingSubscriber(receiveSubscription: { $0.request(.max(2)) })
+        passthrough.subscribe(subscriber2)
+
+        XCTAssertEqual(subscription1.history, [.requested(.unlimited)])
+        XCTAssertEqual(subscriber1.history, [.subscription("PassthroughSubject")])
+        XCTAssertEqual(subscriber2.history, [.subscription("PassthroughSubject")])
+
+        passthrough.send(subscription: subscription1)
+        XCTAssertEqual(subscription1.history, [.requested(.unlimited),
+                                               .requested(.unlimited)])
+
+        passthrough.send(0)
+        passthrough.send(0)
+
+        let subscription2 = CustomSubscription()
+        passthrough.send(subscription: subscription2)
+        XCTAssertEqual(subscription2.history, [.requested(.unlimited)])
+    }
+
+    func testLifecycle() throws {
 
         var deinitCounter = 0
 
@@ -278,12 +340,11 @@ final class PassthroughSubjectTests: XCTestCase {
             XCTAssertEqual(emptySubscriber.completions.count, 0)
         }
 
-        XCTAssertEqual(deinitCounter, 1) // We have a leak
+        XCTAssertEqual(deinitCounter, 1)
 
         var subscription: Subscription?
 
         do {
-
             let passthrough = Sut()
             let emptySubscriber = TrackingSubscriber(
                 receiveSubscription: { subscription = $0; $0.request(.unlimited) },
@@ -296,11 +357,10 @@ final class PassthroughSubjectTests: XCTestCase {
             XCTAssertEqual(emptySubscriber.inputs.count, 1)
             XCTAssertEqual(emptySubscriber.completions.count, 0)
             XCTAssertNotNil(subscription)
-
         }
 
         XCTAssertEqual(deinitCounter, 1)
-        subscription?.cancel()
+        try XCTUnwrap(subscription).cancel()
         XCTAssertEqual(deinitCounter, 2)
     }
 

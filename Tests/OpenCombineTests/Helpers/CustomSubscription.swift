@@ -11,23 +11,38 @@ import Combine
 import OpenCombine
 #endif
 
-@available(macOS 10.15, *)
-final class CustomSubscription: Subscription {
+/// `CustomSubscription` tracks all the requests and cancellations
+/// in its `history` property.
+///
+/// In order to inject `CustomSubscription` into the chain of subscriptions,
+/// use the `CustomSubscriber` class.
+@available(macOS 10.15, iOS 13.0, *)
+final class CustomSubscription: Subscription, CustomStringConvertible {
 
-    enum Event: Equatable {
+    enum Event: Equatable, CustomStringConvertible {
         case requested(Subscribers.Demand)
-        case canceled
+        case cancelled
+
+        var description: String {
+            switch self {
+            case .requested(let demand):
+                return ".requested(.\(demand))"
+            case .cancelled:
+                return ".cancelled"
+            }
+        }
     }
 
+    /// The history of requests and cancellations of this subscription.
     private(set) var history: [Event] = []
 
     private let _requested: ((Subscribers.Demand) -> Void)?
-    private let _canceled: (() -> Void)?
+    private let _cancelled: (() -> Void)?
 
     init(onRequest: ((Subscribers.Demand) -> Void)? = nil,
          onCancel: (() -> Void)? = nil) {
         _requested = onRequest
-        _canceled = onCancel
+        _cancelled = onCancel
     }
 
     var lastRequested: Subscribers.Demand? {
@@ -35,13 +50,13 @@ final class CustomSubscription: Subscription {
             switch $0 {
             case .requested(let demand):
                 return demand
-            case .canceled:
+            case .cancelled:
                 return nil
             }
         }.last
     }
 
-    var canceled = false
+    var cancelled = false
 
     func request(_ demand: Subscribers.Demand) {
         history.append(.requested(demand))
@@ -49,8 +64,10 @@ final class CustomSubscription: Subscription {
     }
 
     func cancel() {
-        history.append(.canceled)
-        canceled = true
-        _canceled?()
+        history.append(.cancelled)
+        cancelled = true
+        _cancelled?()
     }
+
+    var description: String { return "CustomSubscription" }
 }

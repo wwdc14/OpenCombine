@@ -13,21 +13,11 @@ import Combine
 import OpenCombine
 #endif
 
-@available(macOS 10.15, *)
+@available(macOS 10.15, iOS 13.0, *)
 private typealias Sut = AnySubscriber<Int, TestingError>
 
-@available(macOS 10.15, *)
+@available(macOS 10.15, iOS 13.0, *)
 final class AnySubscriberTests: XCTestCase {
-
-    static let allTests = [
-        ("testCombineIdentifier", testCombineIdentifier),
-        ("testDescription", testDescription),
-        ("testReflection", testReflection),
-        ("testErasingSubscriber", testErasingSubscriber),
-        ("testErasingSubscriberSubscription", testErasingSubscriberSubscription),
-        ("testErasingSubject", testErasingSubject),
-        ("testErasingSubjectSubscription", testErasingSubjectSubscription),
-    ]
 
     func testCombineIdentifier() {
 
@@ -38,18 +28,28 @@ final class AnySubscriberTests: XCTestCase {
 
         let subscriber1 = TrackingSubscriber()
         let subscriber2 = TrackingSubscriber()
-        XCTAssertNotEqual(Sut(subscriber1).combineIdentifier,
-                          Sut(subscriber2).combineIdentifier)
-        XCTAssertEqual(subscriber1.combineIdentifier,
-                       Sut(subscriber1).combineIdentifier)
-        XCTAssertEqual(subscriber2.combineIdentifier,
-                       Sut(subscriber2).combineIdentifier)
+
+        do {
+            let erased1 = Sut(subscriber1)
+            let erased2 = Sut(subscriber2)
+            XCTAssertNotEqual(erased1.combineIdentifier, erased2.combineIdentifier)
+        }
+
+        do {
+            let subject = Sut(subscriber1)
+            XCTAssertEqual(subscriber1.combineIdentifier, subject.combineIdentifier)
+        }
+
+        do {
+            let subject = Sut(subscriber2)
+            XCTAssertEqual(subscriber2.combineIdentifier, subject.combineIdentifier)
+        }
     }
 
     func testDescription() {
 
         let empty = Sut()
-        XCTAssertEqual(empty.description, "AnySubscriber")
+        XCTAssertEqual(empty.description, "Anonymous AnySubscriber")
         XCTAssertEqual(empty.description, empty.playgroundDescription as? String)
 
         let subject = PassthroughSubject<Int, TestingError>()
@@ -61,7 +61,7 @@ final class AnySubscriberTests: XCTestCase {
         let subscriber = TrackingSubscriber()
         let erasingSubscriber = Sut(subscriber)
         XCTAssertEqual(erasingSubscriber.description,
-                       "TrackingSubscriberBase<TestingError>: []")
+                       "TrackingSubscriberBase<Int, TestingError>: []")
         XCTAssertEqual(erasingSubscriber.description,
                        erasingSubscriber.playgroundDescription as? String)
     }
@@ -71,7 +71,7 @@ final class AnySubscriberTests: XCTestCase {
         let empty = Sut()
         XCTAssertEqual(
             String(describing: Mirror(reflecting: empty).subjectType),
-            "CombineIdentifier"
+            "String"
         )
         XCTAssert(Mirror(reflecting: empty).children.isEmpty)
 
@@ -87,7 +87,7 @@ final class AnySubscriberTests: XCTestCase {
         let erasingSubscriber = Sut(subscriber)
         XCTAssertEqual(
             String(describing: Mirror(reflecting: erasingSubscriber).subjectType),
-            "TrackingSubscriberBase<TestingError>"
+            "TrackingSubscriberBase<Int, TestingError>"
         )
     }
 
@@ -123,32 +123,24 @@ final class AnySubscriberTests: XCTestCase {
 
         publishEvents(events, publisher)
 
-        XCTAssertEqual(subscriber.history, [.subscription(Subscriptions.empty),
+        XCTAssertEqual(subscriber.history, [.subscription("PassthroughSubject"),
                                             .completion(.finished)])
     }
 
     func testErasingSubject() {
 
-        let subject = TrackingSubject()
+        let subject = TrackingSubject<Int>()
         XCTAssert(subject.history.isEmpty)
 
         let erased = Sut(subject)
 
         publishEvents(events, erased)
 
-        let expectedEvents: [TrackingSubject.Event] =
-            events.compactMap(subscriberEventToSubjectEvent)
+        let expectedEvents: [TrackingSubject<Int>.Event] =
+            [.subscription("Subject")] + events.compactMap(subscriberEventToSubjectEvent)
+                .throughFirstCompletion()
 
         XCTAssertEqual(subject.history, expectedEvents)
-
-        let shuffledEvents = events.shuffled()
-
-        publishEvents(shuffledEvents, erased)
-
-        let expectedShuffledEvents =
-            shuffledEvents.compactMap(subscriberEventToSubjectEvent)
-
-        XCTAssertEqual(subject.history, expectedEvents + expectedShuffledEvents)
 
         let demand = erased.receive(0)
 
@@ -157,7 +149,7 @@ final class AnySubscriberTests: XCTestCase {
 
     func testErasingSubjectSubscription() {
 
-        let subject = TrackingSubject()
+        let subject = TrackingSubject<Int>()
         XCTAssert(subject.history.isEmpty)
 
         let erased = Sut(subject)
@@ -167,19 +159,16 @@ final class AnySubscriberTests: XCTestCase {
 
         publishEvents(events, publisher)
 
-        XCTAssertEqual(subject.history, [.value(31),
-                                         .value(42),
-                                         .value(-1),
-                                         .value(141241241),
+        XCTAssertEqual(subject.history, [.subscription("Subject"),
                                          .completion(.finished)])
     }
 }
 
-@available(OSX 10.15, *)
+@available(macOS 10.15, iOS 13.0, *)
 private let events: [TrackingSubscriber.Event] = [
-    .subscription(Subscriptions.empty),
-    .subscription(Subscriptions.empty),
-    .subscription(Subscriptions.empty),
+    .subscription("1"),
+    .subscription("2"),
+    .subscription("3"),
     .value(31),
     .value(42),
     .value(-1),
@@ -189,8 +178,8 @@ private let events: [TrackingSubscriber.Event] = [
     .completion(.failure("failure"))
 ]
 
-@available(OSX 10.15, *)
-private func publishEvents(_ events: [TrackingSubscriber.Event],_ erased: Sut) {
+@available(macOS 10.15, iOS 13.0, *)
+private func publishEvents(_ events: [TrackingSubscriber.Event], _ erased: Sut) {
     for event in events {
         switch event {
         case .subscription(let s):
@@ -203,15 +192,15 @@ private func publishEvents(_ events: [TrackingSubscriber.Event],_ erased: Sut) {
     }
 }
 
-@available(OSX 10.15, *)
+@available(macOS 10.15, iOS 13.0, *)
 private func publishEvents(
     _ events: [TrackingSubscriber.Event],
     _ publisher: PassthroughSubject<Int, TestingError>
 ) {
     for event in events {
         switch event {
-        case .subscription:
-            break
+        case .subscription(let s):
+            publisher.send(subscription: s)
         case .value(let v):
             publisher.send(v)
         case .completion(let c):
@@ -220,11 +209,10 @@ private func publishEvents(
     }
 }
 
-
-@available(OSX 10.15, *)
+@available(macOS 10.15, iOS 13.0, *)
 private func subscriberEventToSubjectEvent(
     _ from: TrackingSubscriber.Event
-) -> TrackingSubject.Event? {
+) -> TrackingSubject<Int>.Event? {
     switch from {
     case .subscription:
         return nil
@@ -232,5 +220,23 @@ private func subscriberEventToSubjectEvent(
         return .value(v)
     case let .completion(c):
         return .completion(c)
+    }
+}
+
+@available(macOS 10.15, iOS 13.0, *)
+extension Array {
+    func throughFirstCompletion<SubjectOutput>() -> Array
+        where Element == TrackingSubject<SubjectOutput>.Event
+    {
+        var encounteredFirstCompletion = false
+        return self.prefix {
+            if encounteredFirstCompletion {
+                return false
+            }
+            if case .completion = $0 {
+                encounteredFirstCompletion = true
+            }
+            return true
+        }
     }
 }
